@@ -1,56 +1,63 @@
 module DieBase
     where
 
-import Data.Map (empty, Map, insertWith, fromListWith, toList)
+import Data.Map (Map, fromListWith, toList)
 import qualified Data.Map as M
 import Data.List as L (sort, sortOn)
 
 data OperatorMod = Low | High deriving Show
-
--- data RerollType = RerollOnce (Int -> Bool) | RerollInfinite (Int -> Bool)
--- data RerollType = RerollOnce (Int -> Bool)
-
--- data Operator = Keep OperatorMod Int | Drop OperatorMod Int | Reroll RerollType | ExplodeOn Int | Min Int | Max Int deriving Show
--- data Operator = Keep OperatorMod Int | Drop OperatorMod Int | Reroll RerollType | Min Int | Max Int deriving Show
 data Operator = Keep OperatorMod Int | Drop OperatorMod Int | Min Int | Max Int deriving Show
 
 data Die = DieBase Int | DieMult Int Die | DieOp Die Operator | DieMod Die Int | DieAdd Die Die deriving Show
 -- dX | Y[dice] | [dice][op] | [dice] + Z
 
--- type ExpandedDie = [Die]
-
--- instance Show RerollType where
---     show (RerollOnce _) = "RerollOnce"
-    -- show (RerollInfinite _) = "RerollInfinite"
-
 type DiceCollection = [([Int], Int)]
+
+fullCondenseDice :: DiceCollection -> DiceCollection
+fullCondenseDice ds = map (\(x,y) -> ([x],y)) $ toList $ probs' ds
 
 condenseDice :: DiceCollection -> DiceCollection
 condenseDice ds = toList $ fromListWith (+) ds
 
+uncondenseDice :: DiceCollection -> DiceCollection
+uncondenseDice [] = []
+uncondenseDice ((x,y):xs) = replicate y (x,1) ++ uncondenseDice xs
+
 -- map of values to frequencies
-getProbs' :: DiceCollection -> Map Int Int
-getProbs' d = fromListWith (+) [(val, count) | (val, count) <- summed]
+probs' :: DiceCollection -> Map Int Int
+probs' d = fromListWith (+) summed
     where summed = map (\(vals, count) -> (sum vals, count)) d
 
-getProbs :: Die -> Map Int Int
-getProbs d = getProbs' (expandDie d)
+probs :: Die -> Map Int Int
+probs d = probs' (expandDie d)
 
-getPercentages :: Die -> Map Int Float
-getPercentages d = M.map (\x -> 100 * (((/total) . fromIntegral) x)) probs
-    where probs = getProbs d
-          total = (fromIntegral $ foldr (+) 0 probs)
+percentages :: Die -> Map Int Float
+percentages d = M.map (\x -> 100 * (((/total) . fromIntegral) x)) probabilities
+    where probabilities = probs d
+          total = fromIntegral $ foldr (+) 0 probabilities
 
-expandMult' :: DiceCollection -> DiceCollection -> DiceCollection
-expandMult' [] _ = []
-expandMult' ((x, y):xs) ys = map (\(x', y') -> (x++x', y)) ys ++ (expandMult' xs ys)
+expected :: Die -> Float
+expected d = (fromIntegral (sum $ map (\(x,y) -> x * y) (toList probabilities))) / total
+    where probabilities = probs d
+          total = fromIntegral $ foldr (+) 0 probabilities
+
+combineWith :: ([Int] -> [Int] -> [Int]) -> DiceCollection -> DiceCollection -> DiceCollection
+combineWith f [] _ = []
+combineWith f ((x, y): xs) ys = map g ys ++ (combineWith f xs ys)
+    where g (x', y') = (f x x', y * y')
+        --   g _ = error "unexpanded dice in secondary collection"
+-- combineWith _ _ _ = error "unexpanded dice in primary collection"
+
+-- expandMult' :: DiceCollection -> DiceCollection -> DiceCollection
+-- expandMult' [] _ = []
+-- expandMult' ((x, 1):xs) ys = map (\(x', _) -> (x++x', 1)) ys ++ (expandMult' xs ys)
+-- expandMult' _ _ = error "unexpanded dice detected"
 
 expandMult :: Int -> DiceCollection -> DiceCollection
--- expandMult 0 xs = xs
 expandMult x xs
     | x == 0 = []
     | x == 1 = xs
-    | x > 1 = expandMult' xs (expandMult (x-1) xs)
+    | x > 1 = combineWith (++) xs (expandMult (x-1) xs)
     | otherwise = error "negative expansion"
 
 getOp :: Operator -> ([Int] -> [Int])
@@ -65,37 +72,24 @@ expandDie :: Die -> DiceCollection
 expandDie (DieBase i)
     | i > 0 = map (\x -> ([x], 1)) [1..i]
     | otherwise = error "die value cannot be less than 1"
-expandDie (DieMult i d) = expandMult i (expandDie d)
+expandDie (DieMult i d) = expandMult i $ expandDie d
 expandDie (DieMod d i) = map (\(x,y) -> (map (+i) x, y)) (expandDie d)
 expandDie (DieOp d op) = condenseDice $ map (\(x,y) -> (dieOp x, y)) (expandDie d)
     where dieOp = getOp op
+expandDie (DieAdd d1 d2) = combineWith (\x y -> map (+ head y) x) d1' d2'
+    where d1' = fullCondenseDice $ expandDie d1
+          d2' = fullCondenseDice $ expandDie d2
 
+d20 :: Die
 d20 = DieBase 20
+
+roll2 :: Die -> Die
 roll2 d = DieMult 2 d
 
+adv :: Die
 adv = DieOp (DieMult 2 d20) (Keep High 1)
 
-highestOfLowest = DieOp (DieMult 2 (DieOp (DieMult 2 d20) (Keep Low 1))) (Keep High 1)
-lowestOfHighest = DieOp (DieMult 2 (DieOp (DieMult 2 d20) (Keep High 1))) (Keep Low 1)
-
--- data ExpandedDie = Base [Int] | Mult ExpandedDie ExpandedDie deriving Show
-
--- expandMult :: Int -> ExpandedDie -> ExpandedDie
--- expandMult i d
---     | i > 1 = Mult d (expandMult (i-1) d)
---     | i == 1 = d
---     | otherwise = error "expand value is less than 1"
-
--- expandDie :: Die -> ExpandedDie
--- expandDie (DieBase i)
---     | i > 0 = Base [1..i]
---     | otherwise = error "die value is less than 1"
--- expandDie (DieMult i d) = expandMult i expanded
---     where expanded = expandDie d
-
--- expandDice :: Die -> ExpandedDie
--- expandDice (DieBase x) = [DieBase x]
--- expandDice (DieMult x d) = take (x * (length expanded)) (cycle expanded)
---     where expanded = expandDice d
--- expandDice (DieMod d i) = map (flip (DieMod ))
+-- highestOfLowest = DieOp (DieMult 2 (DieOp (DieMult 2 d20) (Keep Low 1))) (Keep High 1)
+-- lowestOfHighest = DieOp (DieMult 2 (DieOp (DieMult 2 d20) (Keep High 1))) (Keep Low 1)
+          
 

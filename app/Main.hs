@@ -1,7 +1,11 @@
 module Main where
 
-import Lib
+-- import Lib
 import DieBase
 
 main :: IO ()
-main = someFunc
+main = do
+    print $ percentages d20
+    print $ expected d20
+    print $ percentages adv
+    print $ expected adv
