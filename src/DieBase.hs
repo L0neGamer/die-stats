@@ -8,8 +8,8 @@ import Data.List as L (sort, sortOn)
 data OperatorMod = Low | High deriving Show
 data Operator = Keep OperatorMod Int | Drop OperatorMod Int | Min Int | Max Int deriving Show
 
-data Die = DieBase Int | DieMult Int Die | DieOp Die Operator | DieMod Die Int | DieAdd Die Die deriving Show
--- dX | Y[dice] | [dice][op] | [dice] + Z
+data Die = Const Int | BaseDie Int | MultipleDie Int Die | OperationDie Die Operator | AddDie Die Die deriving Show
+-- X | dX | Y[dice] | [dice][op] | [dice]+[dice]
 
 type DiceCollection = [([Int], Int)]
 
@@ -69,27 +69,30 @@ getOp (Drop High i) xs = drop i $ sortOn (\x -> -x) xs
 getOp (Drop Low i) xs = drop i $ sort xs
 
 expandDie :: Die -> DiceCollection
-expandDie (DieBase i)
+expandDie (Const i) = [([i],1)]
+expandDie (BaseDie i)
     | i > 0 = map (\x -> ([x], 1)) [1..i]
     | otherwise = error "die value cannot be less than 1"
-expandDie (DieMult i d) = expandMult i $ expandDie d
-expandDie (DieMod d i) = map (\(x,y) -> (map (+i) x, y)) (expandDie d)
-expandDie (DieOp d op) = condenseDice $ map (\(x,y) -> (dieOp x, y)) (expandDie d)
+expandDie (MultipleDie i d) = expandMult i $ expandDie d
+-- expandDie (DieMod d i) = map (\(x,y) -> (map (+i) x, y)) (expandDie d)
+expandDie (OperationDie d op) = condenseDice $ map (\(x,y) -> (dieOp x, y)) (expandDie d)
     where dieOp = getOp op
-expandDie (DieAdd d1 d2) = combineWith (\x y -> map (+ head y) x) d1' d2'
+expandDie (AddDie d1 d2) = combineWith (\x y -> map (+ head y) x) d1' d2'
     where d1' = fullCondenseDice $ expandDie d1
           d2' = fullCondenseDice $ expandDie d2
 
 d20 :: Die
-d20 = DieBase 20
+d20 = BaseDie 20
 
 roll2 :: Die -> Die
-roll2 d = DieMult 2 d
+roll2 d = MultipleDie 2 d
 
 adv :: Die
-adv = DieOp (DieMult 2 d20) (Keep High 1)
+adv = OperationDie (MultipleDie 2 d20) (Keep High 1)
 
--- highestOfLowest = DieOp (DieMult 2 (DieOp (DieMult 2 d20) (Keep Low 1))) (Keep High 1)
--- lowestOfHighest = DieOp (DieMult 2 (DieOp (DieMult 2 d20) (Keep High 1))) (Keep Low 1)
+val = AddDie (OperationDie (MultipleDie 4 d20) (Keep High 1)) (Const 5)
+
+-- highestOfLowest = OperationDie (MultipleDie 2 (OperationDie (MultipleDie 2 d20) (Keep Low 1))) (Keep High 1)
+-- lowestOfHighest = OperationDie (MultipleDie 2 (OperationDie (MultipleDie 2 d20) (Keep High 1))) (Keep Low 1)
           
 
