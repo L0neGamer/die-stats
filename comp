@@ -1,0 +1,1 @@
+stack.exe build --ghc-options="-Wall -O3" && stack.exe run
