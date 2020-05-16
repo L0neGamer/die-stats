@@ -7,9 +7,18 @@ import Data.List as L (sort, sortOn)
 
 data OperatorMod = Low | High deriving Show
 data Operator = Keep OperatorMod Int | Drop OperatorMod Int | Min Int | Max Int deriving Show
+data BinOp = BinOpLabelled (Int -> Int -> Int) String | BinOp (Int -> Int -> Int)
 
-data Die = Const Int | BaseDie Int | MultipleDie Int Die | OperationDie Die Operator | AddDie Die Die deriving Show
--- X | dX | Y[dice] | [dice][op] | [dice]+[dice]
+data Die = Const Int | BaseDie Int | MultipleDie Int Die | OperationDie Die Operator | BinaryOperatorDie BinOp Die Die deriving Show
+-- X | dX | Y[dice] | [dice][op] | binOp [dice] [dice]
+
+instance Show BinOp where
+    show (BinOpLabelled _ label) = "(BinOpLabelled _ " ++ show label ++ ")"
+    show (BinOp _) = "(BinOp _)"
+
+getBinOp :: BinOp -> (Int -> Int -> Int)
+getBinOp (BinOpLabelled f _) = f
+getBinOp (BinOp f) = f
 
 type DiceCollection = [([Int], Int)]
 
@@ -25,33 +34,26 @@ uncondenseDice ((x,y):xs) = replicate y (x,1) ++ uncondenseDice xs
 
 -- map of values to frequencies
 probs' :: DiceCollection -> Map Int Int
-probs' d = fromListWith (+) summed
-    where summed = map (\(vals, count) -> (sum vals, count)) d
+probs' die = fromListWith (+) summed
+    where summed = map (\(vals, count) -> (sum vals, count)) die
 
 probs :: Die -> Map Int Int
-probs d = probs' (expandDie d)
+probs die = probs' (expandDie die)
 
 percentages :: Die -> Map Int Float
-percentages d = M.map (\x -> 100 * (((/total) . fromIntegral) x)) probabilities
-    where probabilities = probs d
+percentages die = M.map (\x -> 100 * (((/total) . fromIntegral) x)) probabilities
+    where probabilities = probs die
           total = fromIntegral $ foldr (+) 0 probabilities
 
 expected :: Die -> Float
-expected d = (fromIntegral (sum $ map (\(x,y) -> x * y) (toList probabilities))) / total
-    where probabilities = probs d
+expected die = (fromIntegral (sum $ map (\(x,y) -> x * y) (toList probabilities))) / total
+    where probabilities = probs die
           total = fromIntegral $ foldr (+) 0 probabilities
 
 combineWith :: ([Int] -> [Int] -> [Int]) -> DiceCollection -> DiceCollection -> DiceCollection
-combineWith f [] _ = []
+combineWith _ [] _ = []
 combineWith f ((x, y): xs) ys = map g ys ++ (combineWith f xs ys)
     where g (x', y') = (f x x', y * y')
-        --   g _ = error "unexpanded dice in secondary collection"
--- combineWith _ _ _ = error "unexpanded dice in primary collection"
-
--- expandMult' :: DiceCollection -> DiceCollection -> DiceCollection
--- expandMult' [] _ = []
--- expandMult' ((x, 1):xs) ys = map (\(x', _) -> (x++x', 1)) ys ++ (expandMult' xs ys)
--- expandMult' _ _ = error "unexpanded dice detected"
 
 expandMult :: Int -> DiceCollection -> DiceCollection
 expandMult x xs
@@ -73,26 +75,35 @@ expandDie (Const i) = [([i],1)]
 expandDie (BaseDie i)
     | i > 0 = map (\x -> ([x], 1)) [1..i]
     | otherwise = error "die value cannot be less than 1"
-expandDie (MultipleDie i d) = expandMult i $ expandDie d
--- expandDie (DieMod d i) = map (\(x,y) -> (map (+i) x, y)) (expandDie d)
-expandDie (OperationDie d op) = condenseDice $ map (\(x,y) -> (dieOp x, y)) (expandDie d)
+expandDie (MultipleDie i die) = expandMult i $ expandDie die
+expandDie (OperationDie die op) = condenseDice $ map (\(x,y) -> (dieOp x, y)) (expandDie die)
     where dieOp = getOp op
-expandDie (AddDie d1 d2) = combineWith (\x y -> map (+ head y) x) d1' d2'
-    where d1' = fullCondenseDice $ expandDie d1
+expandDie (BinaryOperatorDie b d1 d2) = combineWith (\x y -> [binOp (head x) (head y)]) d1' d2'
+    where binOp = getBinOp b
+          d1' = fullCondenseDice $ expandDie d1
           d2' = fullCondenseDice $ expandDie d2
 
-d20 :: Die
-d20 = BaseDie 20
+d :: Int -> Die
+d = BaseDie
 
-roll2 :: Die -> Die
-roll2 d = MultipleDie 2 d
+(.*) :: Int -> Die -> Die
+i .* die = MultipleDie i die
+
+(.:) :: Die -> Operator -> Die
+die .: op = OperationDie die op
+
+d20 :: Die
+d20 = d 20
 
 adv :: Die
-adv = OperationDie (MultipleDie 2 d20) (Keep High 1)
+adv = OperationDie (2.*d20) (Keep High 1)
 
-val = AddDie (OperationDie (MultipleDie 4 d20) (Keep High 1)) (Const 5)
+charGen :: Die
+charGen = 4.*d 6 .: Keep High 3
 
 -- highestOfLowest = OperationDie (MultipleDie 2 (OperationDie (MultipleDie 2 d20) (Keep Low 1))) (Keep High 1)
+-- highestOfLowest = 2.*(2.*d20 .: Keep Low 1) .: Keep High 1
 -- lowestOfHighest = OperationDie (MultipleDie 2 (OperationDie (MultipleDie 2 d20) (Keep High 1))) (Keep Low 1)
+-- lowestOfHighest = 2.*(2.*d20 .: Keep High 1) .: Keep Low 1
           
 
