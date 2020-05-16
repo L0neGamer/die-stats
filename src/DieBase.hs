@@ -41,7 +41,7 @@ probs :: Die -> Map Int Int
 probs die = probs' (expandDie die)
 
 percentages :: Die -> Map Int Float
-percentages die = M.map (\x -> 100 * (((/total) . fromIntegral) x)) probabilities
+percentages die = M.map (\x -> ((/total) . fromIntegral . (*100)) x) probabilities
     where probabilities = probs die
           total = fromIntegral $ foldr (+) 0 probabilities
 
