@@ -17,13 +17,13 @@ data Operator = OperatorKeep OperatorMod Int -- high or low, and how many
               | OperatorThreshold Int -- to threshold values below a certain value
               deriving Show
 
-data Die = Const Int 
+data Die = Const Int
          | CustomDie [(Int, Int)] -- value to frequency
-         | BaseDie Int 
-         | MultipleDie Int Die 
-         | OperationDie Die Operator 
-         | BinaryOperatorDie BinOp Die Die 
-         | RerollDie Die Reroll 
+         | BaseDie Int
+         | MultipleDie Int Die
+         | OperationDie Die Operator
+         | BinaryOperatorDie BinOp Die Die
+         | RerollDie Die Reroll
          | AttackDie Die Int Int Die Int Die -- hitting die, val to equal or exceed, always fail threshold, val of damage, minimum crit value, total val of crit damage
          deriving Show
 -- X | dX | Y[dice] | [dice][op] | binOp [dice] [dice] | [dice][reroll on] | no idea how to write this
@@ -197,17 +197,3 @@ charGen = 4.*d 6 .:kp h 3
 
 consAttack :: Int -> Int -> Die -> Int -> Die
 consAttack modifier ac dmg dmgMod = AttackDie (d20 ..+ Const modifier) ac (1 + modifier) (dmg ..+ Const dmgMod) (20 + modifier) dmg
-
--- baseMaul :: Die
--- baseMaul = 2.*(d 6.#(<3))
--- maulDamage :: Die
--- maulDamage = baseMaul ..+ Const 3
--- maulAttack :: Die
--- maulAttack = AttackDie (d20 ..+ Const 4) 13 6 maulDamage 24 baseMaul
-
--- highestOfLowest = OperationDie (MultipleDie 2 (OperationDie (MultipleDie 2 d20) (OperatorKeep Low 1))) (OperatorKeep High 1)
--- highestOfLowest = 2.*(2.*d20 .: OperatorKeep Low 1) .: OperatorKeep High 1
--- lowestOfHighest = OperationDie (MultipleDie 2 (OperationDie (MultipleDie 2 d20) (OperatorKeep High 1))) (OperatorKeep Low 1)
--- lowestOfHighest = 2.*(2.*d20 .: OperatorKeep High 1) .: OperatorKeep Low 1
-          
-
