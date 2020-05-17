@@ -15,7 +15,6 @@ data Operator = OperatorKeep OperatorMod Int -- high or low, and how many
               | OperatorMax Int -- minimum value allowed
               | OperatorGeneric GenOp -- to allow generic calculations (not recommended)
               | OperatorThreshold Int -- to threshold values below a certain value
-            --   | OperatorAttack Int Int Die -- AC of target, minimum value of a crit attack, and dice to be added on a crit
               deriving Show
 
 data Die = Const Int 
@@ -27,7 +26,7 @@ data Die = Const Int
          | RerollDie Die Reroll 
          | AttackDie Die Int Int Die Int Die -- hitting die, val to equal or exceed, always fail threshold, val of damage, minimum crit value, total val of crit damage
          deriving Show
--- X | dX | Y[dice] | [dice][op] | binOp [dice] [dice] | [dice][reroll on]
+-- X | dX | Y[dice] | [dice][op] | binOp [dice] [dice] | [dice][reroll on] | no idea how to write this
 
 instance Show BinOp where
     show (BinOp _) = "BinOp"
@@ -38,48 +37,59 @@ instance Show Reroll where
 
 type DiceCollection = [([Int], Int)]
 
+-- condense everything down to values
 fullCondenseDice :: DiceCollection -> DiceCollection
 fullCondenseDice ds = map (\(x,y) -> ([x],y)) $ toList $ probs' ds
 
+-- condense similar dice sets
 condenseDice :: DiceCollection -> DiceCollection
 condenseDice ds = toList $ fromListWith (+) ds
 
-uncondenseDice :: DiceCollection -> DiceCollection
-uncondenseDice [] = []
-uncondenseDice ((x,y):xs) = replicate y (x,1) ++ uncondenseDice xs
+-- expand out dice sets (unused)
+-- uncondenseDice :: DiceCollection -> DiceCollection
+-- uncondenseDice [] = []
+-- uncondenseDice ((x,y):xs) = replicate y (x,1) ++ uncondenseDice xs
 
--- map of values to frequencies
+-- from a dicecollection, get a map of values to frequencies
 probs' :: DiceCollection -> Map Int Int
 probs' die = fromListWith (+) summed
     where summed = map (\(vals, count) -> (sum vals, count)) die
 
+-- expand a die then call probs'
 probs :: Die -> Map Int Int
 probs die = probs' (expandDie die)
 
+-- get the percentages of each value from a die
 percentages :: Die -> Map Int Float
 percentages die = Data.Map.map (\x -> ((/total) . fromIntegral . (*100)) x) probabilities
     where probabilities = probs die
           total = fromIntegral $ foldr (+) 0 probabilities
 
+-- what is the expected value of a die
 expected :: Die -> Float
 expected die = (fromIntegral (sum $ map (\(x,y) -> x * y) (toList probabilities))) / total
     where probabilities = probs die
           total = fromIntegral $ foldr (+) 0 probabilities
 
+-- get the expected value and the percentages for a die
 stats :: Die -> (Float, Map Int Float)
 stats die = (expected die, percentages die)
 
+-- given a collection, find the total number of items
 totalFreq' :: DiceCollection -> Int
 totalFreq' xs = foldr (\x y -> snd x + y) 0 xs
 
+-- expand die then use totalfreq'
 totalFreq :: Die -> Int
 totalFreq die = totalFreq' (expandDie die)
 
+-- combine two dice collections by mapping a combination of one over the other
 combineWith :: ([Int] -> [Int] -> [Int]) -> (Int -> Int -> Int) -> DiceCollection -> DiceCollection -> DiceCollection
 combineWith _ _ [] _ = []
 combineWith f f' ((x, y): xs) ys = map g ys ++ (combineWith f f' xs ys)
     where g (x', y') = (f x x', f' y y')
 
+-- repeat and combine a dicecollection with itself
 expandMult :: Int -> DiceCollection -> DiceCollection
 expandMult x xs
     | x == 0 = []
@@ -87,6 +97,7 @@ expandMult x xs
     | x > 1 = combineWith (++) (*) xs (expandMult (x-1) xs)
     | otherwise = error "negative expansion"
 
+-- given an operator, return a function that takes a list of ints and returns a list of ints
 getOp :: Operator -> ([Int] -> [Int])
 getOp (OperatorMax i) xs = map (min i) xs
 getOp (OperatorMin i) xs = map (max i) xs
@@ -99,31 +110,35 @@ getOp (OperatorThreshold i) xs
     | sum xs < i = []
     | otherwise = [1]
 
+-- replace a collection of values if their sum meets some criteria with a second list. else, continue
 replaceIf' :: (Int -> Bool) -> DiceCollection -> DiceCollection -> DiceCollection
 replaceIf' _ [] _ = []
 replaceIf' f ((x,y):xs) ys
     | f (sum x) = concat (replicate y ys) ++ replaceIf' f xs ys
     | otherwise = (x,y): replaceIf' f xs ys
 
+-- call replaceIf' on the same list twice
 replaceIf :: (Int -> Bool) -> DiceCollection -> DiceCollection
 replaceIf f xs = replaceIf' f xs xs
 
+-- condenses two dice, and then combines them according to a binary operator
 expandBinOp :: (Int -> Int -> Int) -> Die -> Die -> (Int -> Int -> Int) -> DiceCollection
 expandBinOp b die1 die2 yFunc = combineWith (\x y -> [b (head x) (head y)]) yFunc die1' die2'
     where die1' = fullCondenseDice $ expandDie die1
           die2' = fullCondenseDice $ expandDie die2
 
+-- do some attack calculations
 expandAttack :: DiceCollection -> Int -> Int -> Die -> Int -> Die -> DiceCollection
 expandAttack [] _ _ _ _ _ = []
 expandAttack ((x,y):xs) threshold miss dmg critThreshold critDmg
-    | sum x < threshold = (expandDie (dmg ..* CustomDie [(0,y)] ..* nonCritAdjust)) ++ expandAttack xs threshold miss dmg critThreshold critDmg
-    | sum x >= critThreshold = expandDie ((dmg ..+ critDmg) ..* hits) ++ expandAttack xs threshold miss dmg critThreshold critDmg
-    | sum x <= miss = (expandDie (dmg ..* CustomDie [(0,y)] ..* nonCritAdjust)) ++ expandAttack xs threshold miss dmg critThreshold critDmg
-    | otherwise = expandDie (damage ..* nonCritAdjust) ++ expandAttack xs threshold miss dmg critThreshold critDmg
+    | sum x <  threshold || sum x <= miss = expandDie (damage ..* Const 0) ++ nextVal
+    | sum x >= critThreshold              = expandDie ((dmg ..+ critDmg) ..* hits)                   ++ nextVal
+    | otherwise                           = expandDie damage                    ++ nextVal
     where hits = CustomDie [(1,y)]
-          nonCritAdjust = CustomDie [(1,totalFreq critDmg)]
-          damage = dmg ..* hits
+          damage = dmg ..* hits ..* CustomDie [(1,totalFreq critDmg)]
+          nextVal = expandAttack xs threshold miss dmg critThreshold critDmg
 
+-- expand a die and give a dice collection from it
 expandDie :: Die -> DiceCollection
 expandDie (Const i) = [([i],1)]
 expandDie (CustomDie xs) = map (\(x,y) -> ([x],y)) xs
@@ -138,9 +153,11 @@ expandDie (RerollDie die (Reroll reroll)) = condenseDice $ replaceIf reroll die'
     where die' = expandDie die
 expandDie (AttackDie toHit threshold miss dmg critThreshold critDmg) = expandAttack (expandDie toHit) threshold miss dmg critThreshold critDmg
 
+-- easy constructor for an N sided die; d 6 -> a cube die
 d :: Int -> Die
 d = BaseDie
 
+-- easy constructors for keep and drop operators, as well as their modifiers of high and low
 kp :: OperatorMod -> Int -> Operator
 kp = OperatorKeep
 dp :: OperatorMod -> Int -> Operator
@@ -150,11 +167,11 @@ h = High
 l :: OperatorMod
 l = Low
 
--- repeat die multiple times
+-- repeat a die multiple times; 2 (die) -> roll die twice and match each value with every value
 (.*) :: Int -> Die -> Die
 i .* die = MultipleDie i die
 
--- add an operator to some dice
+-- add an operator to some dice; add an operator onto a die
 (.:) :: Die -> Operator -> Die
 die .: op = OperationDie die op
 
@@ -176,17 +193,17 @@ adv :: Die
 adv = (2.*d20).:kp h 1
 
 charGen :: Die
-charGen = 4.*d 6 .: OperatorKeep High 3
+charGen = 4.*d 6 .:kp h 3
 
 consAttack :: Int -> Int -> Die -> Int -> Die
 consAttack modifier ac dmg dmgMod = AttackDie (d20 ..+ Const modifier) ac (1 + modifier) (dmg ..+ Const dmgMod) (20 + modifier) dmg
 
-baseMaul :: Die
-baseMaul = 2.*(d 6.#(<3))
-maulDamage :: Die
-maulDamage = baseMaul ..+ Const 3
-maulAttack :: Die
-maulAttack = AttackDie (d20 ..+ Const 4) 13 6 maulDamage 24 baseMaul
+-- baseMaul :: Die
+-- baseMaul = 2.*(d 6.#(<3))
+-- maulDamage :: Die
+-- maulDamage = baseMaul ..+ Const 3
+-- maulAttack :: Die
+-- maulAttack = AttackDie (d20 ..+ Const 4) 13 6 maulDamage 24 baseMaul
 
 -- highestOfLowest = OperationDie (MultipleDie 2 (OperationDie (MultipleDie 2 d20) (OperatorKeep Low 1))) (OperatorKeep High 1)
 -- highestOfLowest = 2.*(2.*d20 .: OperatorKeep Low 1) .: OperatorKeep High 1
