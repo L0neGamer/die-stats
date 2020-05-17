@@ -39,7 +39,7 @@ packages:
 # - git: https://github.com/commercialhaskell/stack.git
 #   commit: e7b331f14bcffb8367cd58fbfc8b40ec7642100a
 #
-# extra-deps: []
+# extra-deps: [numeric-quest-0.2.0.2@sha256:07a766138ca21232690d27c3d3860ff51fc1ad8418ae824518d603a7f807a2a0]
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
