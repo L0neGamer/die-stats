@@ -66,6 +66,9 @@ expected die = (fromIntegral (sum $ map (\(x,y) -> x * y) (toList probabilities)
     where probabilities = probs die
           total = fromIntegral $ foldr (+) 0 probabilities
 
+stats :: Die -> (Float, Map Int Float)
+stats die = (expected die, percentages die)
+
 totalFreq' :: DiceCollection -> Int
 totalFreq' xs = foldr (\x y -> snd x + y) 0 xs
 
@@ -106,9 +109,9 @@ replaceIf :: (Int -> Bool) -> DiceCollection -> DiceCollection
 replaceIf f xs = replaceIf' f xs xs
 
 expandBinOp :: (Int -> Int -> Int) -> Die -> Die -> (Int -> Int -> Int) -> DiceCollection
-expandBinOp b d1 d2 yFunc = combineWith (\x y -> [b (head x) (head y)]) yFunc d1' d2'
-    where d1' = fullCondenseDice $ expandDie d1
-          d2' = fullCondenseDice $ expandDie d2
+expandBinOp b die1 die2 yFunc = combineWith (\x y -> [b (head x) (head y)]) yFunc die1' die2'
+    where die1' = fullCondenseDice $ expandDie die1
+          die2' = fullCondenseDice $ expandDie die2
 
 expandAttack :: DiceCollection -> Int -> Int -> Die -> Int -> Die -> DiceCollection
 expandAttack [] _ _ _ _ _ = []
@@ -130,7 +133,7 @@ expandDie (BaseDie i)
 expandDie (MultipleDie i die) = expandMult i $ expandDie die
 expandDie (OperationDie die op) = condenseDice $ map (\(x,y) -> (dieOp x, y)) (expandDie die)
     where dieOp = getOp op
-expandDie (BinaryOperatorDie (BinOp b) d1 d2) = expandBinOp b d1 d2 (*)
+expandDie (BinaryOperatorDie (BinOp b) die1 die2) = expandBinOp b die1 die2 (*)
 expandDie (RerollDie die (Reroll reroll)) = condenseDice $ replaceIf reroll die'
     where die' = expandDie die
 expandDie (AttackDie toHit threshold miss dmg critThreshold critDmg) = expandAttack (expandDie toHit) threshold miss dmg critThreshold critDmg
@@ -157,20 +160,20 @@ die .: op = OperationDie die op
 
 -- multiply two dice together
 (..*) :: Die -> Die -> Die
-d1 ..* d2 = BinaryOperatorDie (BinOp (*)) d1 d2
+die1 ..* die2 = BinaryOperatorDie (BinOp (*)) die1 die2
 -- add two dice together
 (..+) :: Die -> Die -> Die
-d1 ..+ d2 = BinaryOperatorDie (BinOp (+)) d1 d2
+die1 ..+ die2 = BinaryOperatorDie (BinOp (+)) die1 die2
 
 -- reroll on a given function
 (.#) :: Die -> (Int -> Bool) -> Die
-d1 .# f = RerollDie d1 (Reroll f)
+die1 .# f = RerollDie die1 (Reroll f)
 
 d20 :: Die
 d20 = d 20
 
 adv :: Die
-adv = OperationDie (2.*d20) (OperatorKeep High 1)
+adv = (2.*d20).:kp h 1
 
 charGen :: Die
 charGen = 4.*d 6 .: OperatorKeep High 3
