@@ -39,6 +39,10 @@ instance Show Reroll where
 
 type DiceCollection = [([Integer], Integer)]
 
+-- gets the percentage of the first arg over the second
+(.%) :: Integer -> Integer -> Float
+val .% total = ((/ fromIntegral total) . fromIntegral . (* 100)) val
+
 -- condense everything down to values
 fullCondenseDice :: DiceCollection -> DiceCollection
 fullCondenseDice ds = map (\(x,y) -> ([x],y)) $ toAscList $ probs' ds
@@ -58,9 +62,9 @@ probs die = probs' $! expandDie die
 
 -- get the percentages of each value from a die
 percentages' :: DiceCollection -> Map Integer Float
-percentages' dieC = Data.Map.map (\x -> ((/total) . fromIntegral) x) probabilities
+percentages' dieC = Data.Map.map (flip (.%) total) probabilities
     where probabilities = probs' dieC
-          total = fromIntegral $ totalFreq' dieC
+          total = totalFreq' dieC
 percentages :: Die -> Map Integer Float
 percentages die = percentages' $! expandDie die
 
@@ -85,9 +89,9 @@ accumulate v ((x, y):xs) = (x, v + y) : accumulate (v + y) xs
 
 -- given a way to convert a map into a list and a dice collection, return a map of values to the probabilities of each value but accumulated with the previous value
 accumulateProbability :: (Map Integer Integer -> [(Integer, Integer)]) -> DiceCollection -> Map Integer Float
-accumulateProbability toXList dieC = fromList $ map (\(x, y) -> (x, fromIntegral y / total)) $ accumulate 0 probabilities
+accumulateProbability toXList dieC = fromList $ map (\(x, y) -> (x, y .% total)) $ accumulate 0 probabilities
     where probabilities = toXList $ probs' dieC
-          total = fromIntegral $ totalFreq' dieC
+          total = totalFreq' dieC
 
 -- get the probability of getting at most (or least) this item
 atMost :: Die -> Map Integer Float
@@ -124,9 +128,7 @@ getOp (OperatorKeep Low i)  xs = genericTake i $ sort xs
 getOp (OperatorDrop High i) xs = genericDrop i $ sortOn (\x -> -x) xs
 getOp (OperatorDrop Low i)  xs = genericDrop i $ sort xs
 getOp (OperatorGeneric (GenOp f)) xs = f xs
-getOp (OperatorThreshold i) xs = [fromIntegral $ fromEnum $ not $ sum xs < 1]
--- | sum xs < i = []
--- | otherwise = [1]
+getOp (OperatorThreshold i) xs = [fromIntegral $ fromEnum $ sum xs >= i]
 
 -- replace a collection of values if their sum meets some criteria with a second list. else, continue
 replaceIf' :: (Integer -> Bool) -> DiceCollection -> DiceCollection -> DiceCollection
@@ -203,6 +205,10 @@ die1 ..+ die2 = BinaryOperatorDie (BinOp (+)) die1 die2
 -- reroll on a given function
 (.#) :: Die -> (Integer -> Bool) -> Die
 die1 .# f = RerollDie die1 (Reroll f)
+
+-- value is or is greater than threshold
+(.>) :: Die -> Integer -> Die
+die .> i = OperationDie die (OperatorThreshold i)
 
 d20 :: Die
 d20 = d 20
