@@ -1,7 +1,9 @@
+-- {-# BangPatterns  #}
+
 module DieBase
     where
 
-import Data.Map (Map, fromListWith, toList)
+import Data.Map (Map, fromListWith, toAscList, toDescList, fromList)
 import qualified Data.Map
 import Data.List as L (sort, sortOn, genericTake, genericDrop)
 
@@ -39,44 +41,63 @@ type DiceCollection = [([Integer], Integer)]
 
 -- condense everything down to values
 fullCondenseDice :: DiceCollection -> DiceCollection
-fullCondenseDice ds = map (\(x,y) -> ([x],y)) $ toList $ probs' ds
+fullCondenseDice ds = map (\(x,y) -> ([x],y)) $ toAscList $ probs' ds
 
 -- condense similar dice sets
 condenseDice :: DiceCollection -> DiceCollection
-condenseDice ds = toList $ fromListWith (+) ds
+condenseDice ds = toAscList $ fromListWith (+) ds
 
 -- from a dicecollection, get a map of values to frequencies
 probs' :: DiceCollection -> Map Integer Integer
-probs' die = fromListWith (+) summed
-    where summed = map (\(vals, count) -> (sum vals, count)) die
+probs' dieC = fromListWith (+) summed
+    where summed = map (\(vals, count) -> (sum vals, count)) dieC
 
 -- expand a die then call probs'
 probs :: Die -> Map Integer Integer
-probs die = probs' (expandDie die)
+probs die = probs' $! expandDie die
 
 -- get the percentages of each value from a die
-percentages :: Die -> Map Integer Float
-percentages die = Data.Map.map (\x -> ((/total) . fromIntegral . (*100)) x) probabilities
-    where probabilities = probs die
+percentages' :: DiceCollection -> Map Integer Float
+percentages' dieC = Data.Map.map (\x -> ((/total) . fromIntegral) x) probabilities
+    where probabilities = probs' dieC
           total = fromIntegral $ foldr (+) 0 probabilities
+percentages :: Die -> Map Integer Float
+percentages die = percentages' $! expandDie die
 
 -- what is the expected value of a die
-expected :: Die -> Float
-expected die = (fromIntegral (sum $ map (\(x,y) -> x * y) (toList probabilities))) / total
-    where probabilities = probs die
+expected' :: DiceCollection -> Float
+expected' dieC = (fromIntegral (sum $ map (\(x,y) -> x * y) (toAscList probabilities))) / total
+    where probabilities = probs' dieC
           total = fromIntegral $ foldr (+) 0 probabilities
+expected :: Die -> Float
+expected die = expected' $! expandDie die
 
 -- get the expected value and the percentages for a die
+stats' :: DiceCollection -> (Float, Map Integer Float)
+stats' dieC = (expected' dieC, percentages' dieC)
 stats :: Die -> (Float, Map Integer Float)
-stats die = (expected die, percentages die)
+stats die = stats' $! expandDie die
+
+accumulate :: Num a => a -> [(b, a)] -> [(b, a)]
+accumulate _ [] = []
+accumulate v ((x, y):xs) = (x, v + y) : accumulate (v + y) xs
+
+accumulateProbability :: (Map Integer Integer -> [(Integer, Integer)]) -> DiceCollection -> Map Integer Float
+accumulateProbability toXList dieC = fromList $ map (\(x, y) -> (x, fromIntegral y / total)) $ accumulate 0 probabilities
+    where probabilities = toXList $ probs' dieC
+          total = fromIntegral $ totalFreq' dieC
+
+-- get the probability of getting at most (or least) this item
+atMost :: Die -> Map Integer Float
+atMost die = accumulateProbability toAscList $! expandDie die
+atLeast :: Die -> Map Integer Float
+atLeast die = accumulateProbability toDescList $! expandDie die
 
 -- given a collection, find the total number of items
 totalFreq' :: DiceCollection -> Integer
 totalFreq' xs = foldr (\x y -> snd x + y) 0 xs
-
--- expand die then use totalfreq'
 totalFreq :: Die -> Integer
-totalFreq die = totalFreq' (expandDie die)
+totalFreq die = totalFreq' $! expandDie die
 
 -- combine two dice collections by mapping a combination of one over the other
 combineWith :: ([Integer] -> [Integer] -> [Integer]) -> (Integer -> Integer -> Integer) -> DiceCollection -> DiceCollection -> DiceCollection
