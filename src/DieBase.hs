@@ -126,8 +126,8 @@ expandBinOp b die1 die2 yFunc = combineWith (\x y -> [b (head x) (head y)]) yFun
 expandAttack :: DiceCollection -> Integer -> Integer -> Die -> Integer -> Die -> DiceCollection
 expandAttack [] _ _ _ _ _ = []
 expandAttack ((x,y):xs) threshold miss dmg critThreshold critDmg
-    | sum x <  threshold || sum x <= miss = expandDie (damage ..* Const 0) ++ nextVal
     | sum x >= critThreshold              = expandDie ((dmg ..+ critDmg) ..* hits)                   ++ nextVal
+    | sum x <  threshold || sum x <= miss = expandDie (damage ..* Const 0) ++ nextVal
     | otherwise                           = expandDie damage                    ++ nextVal
     where hits = CustomDie [(1,y)]
           damage = dmg ..* hits ..* CustomDie [(1,totalFreq critDmg)]
