@@ -42,41 +42,37 @@ type DiceProb = Ratio Integer
 type DiceSet = [Integer]
 type DiceCollection = [(DiceSet, DiceProb)]
 
--- gets the percentage of the first arg over the second
-(.%) :: Integer -> Integer -> Float
-val .% total = ((/ fromIntegral total) . fromIntegral . (* 100)) val
+-- converts a diceprob to its percentage
+toPercent :: DiceProb -> Float
+toPercent = (fromRational) . (* 100)
 
 -- condense everything down to values
 fullCondenseDice :: DiceCollection -> DiceCollection
-fullCondenseDice ds = map (\(x,y) -> ([x],y)) $ toAscList $ probs' ds
+fullCondenseDice = map (\(x,y) -> ([x],y)) . toAscList . probs'
 
 -- condense similar dice sets
 condenseDice :: DiceCollection -> DiceCollection
-condenseDice ds = toAscList $ fromListWith (+) ds
+condenseDice = toAscList . fromListWith (+)
 
 -- from a dicecollection, get a map of values to frequencies
 probs' :: DiceCollection -> Map Integer DiceProb
-probs' dieC = fromListWith (+) summed
-    where summed = map (\(vals, count) -> (sum vals, count)) dieC
+probs' = fromListWith (+) . map (\(vals, count) -> (sum vals, count))
 
 -- expand a die then call probs'
 probs :: Die -> Map Integer DiceProb
-probs die = probs' $! expandDie die
+probs = probs' . expandDie
 
 -- get the percentages of each value from a die
 percentages' :: DiceCollection -> Map Integer Float
-percentages' dieC = Data.Map.map (fromRational . (*100)) probabilities
-    where probabilities = probs' dieC
+percentages' = Data.Map.map toPercent . probs'
 percentages :: Die -> Map Integer Float
-percentages die = percentages' $! expandDie die
+percentages = percentages' . expandDie
 
 -- what is the expected value of a die
 expected' :: DiceCollection -> Float
-expected' dieC = fromRational $ sum $ map (\(x,y) -> fromIntegral x * y) $ toAscList probabilities
-    where probabilities = probs' dieC
-        --   total = fromIntegral $ totalFreq' dieC
+expected' = fromRational . sum . map (\(x,y) -> fromIntegral x * y) . toAscList . probs'
 expected :: Die -> Float
-expected die = expected' $! expandDie die
+expected = expected' . expandDie
 
 -- get the expected value and the percentages for a die
 stats' :: DiceCollection -> (Float, Map Integer Float)
@@ -90,22 +86,14 @@ accumulate _ [] = []
 accumulate v ((x, y):xs) = (x, v + y) : accumulate (v + y) xs
 
 -- given a way to convert a map into a list and a dice collection, return a map of values to the probabilities of each value but accumulated with the previous value
-accumulateProbability :: (Map Integer DiceProb -> [(Integer, DiceProb)]) -> DiceCollection -> Map Integer DiceProb
-accumulateProbability toXList dieC = fromList $ accumulate 0 probabilities
-    where probabilities = toXList $ probs' dieC
-        --   total = totalFreq' dieC
+accumulateProbability :: (Map Integer DiceProb -> [(Integer, DiceProb)]) -> DiceCollection -> Map Integer Float
+accumulateProbability toXList = Data.Map.map toPercent . fromList . accumulate 0 . toXList . probs'
 
 -- get the probability of getting at most (or least) this item
-atMost :: Die -> Map Integer DiceProb
-atMost die = accumulateProbability toAscList $! expandDie die
-atLeast :: Die -> Map Integer DiceProb
-atLeast die = accumulateProbability toDescList $! expandDie die
-
--- given a collection, find the total number of items
--- totalFreq' :: DiceCollection -> Integer
--- totalFreq' xs = foldr (\x y -> snd x + y) 0 xs
--- totalFreq :: Die -> Integer
--- totalFreq die = totalFreq' $! expandDie die
+atMost :: Die -> Map Integer Float
+atMost = accumulateProbability toAscList . expandDie 
+atLeast :: Die -> Map Integer Float
+atLeast = accumulateProbability toDescList . expandDie
 
 -- combine two dice collections by mapping a combination of one over the other
 combineWith :: (DiceSet -> DiceSet -> DiceSet)-> DiceCollection -> DiceCollection -> DiceCollection
@@ -123,14 +111,14 @@ expandMult x xs
 
 -- given an operator, return a function that takes a list of ints and returns a list of ints
 getOp :: Operator -> ([Integer] -> [Integer])
-getOp (OperatorMax i) xs = map (min i) xs
-getOp (OperatorMin i) xs = map (max i) xs
-getOp (OperatorKeep High i) xs = genericTake i $ sortOn (\x -> -x) xs
-getOp (OperatorKeep Low i)  xs = genericTake i $ sort xs
-getOp (OperatorDrop High i) xs = genericDrop i $ sortOn (\x -> -x) xs
-getOp (OperatorDrop Low i)  xs = genericDrop i $ sort xs
-getOp (OperatorGeneric (GenOp f)) xs = f xs
-getOp (OperatorThreshold i) xs = [fromIntegral $ fromEnum $ sum xs >= i]
+getOp (OperatorMax i) = map (min i)
+getOp (OperatorMin i) = map (max i)
+getOp (OperatorKeep High i) = genericTake i . sortOn (\x -> -x) 
+getOp (OperatorKeep Low i)  = genericTake i . sort 
+getOp (OperatorDrop High i) = genericDrop i . sortOn (\x -> -x) 
+getOp (OperatorDrop Low i)  = genericDrop i . sort 
+getOp (OperatorGeneric (GenOp f)) = f 
+getOp (OperatorThreshold i) = \xs -> [fromIntegral $ fromEnum $ sum xs >= i]
 
 -- replace a collection of values if their sum meets some criteria with a second list. else, continue
 replaceIf' :: (Integer -> Bool) -> DiceCollection -> DiceCollection -> DiceCollection
@@ -163,8 +151,7 @@ expandAttack ((x,y):xs) threshold miss dmg critThreshold critDmg
 -- expand a die and give a dice collection from it
 expandDie :: Die -> DiceCollection
 expandDie (Const i) = [([i], 1)]
-expandDie (CustomDie xs) = map (\(x,y) -> ([x], y / totalRatio)) xs
-    where totalRatio = foldr (\v t -> snd v + t) (0 % 1) xs
+expandDie (CustomDie xs) = map (\(x,y) -> ([x], y)) xs
 expandDie (BaseDie i)
     | i > 0 = map (\x -> ([x], 1 / fromIntegral i)) [1..i]
     | otherwise = error "die value cannot be less than 1"
