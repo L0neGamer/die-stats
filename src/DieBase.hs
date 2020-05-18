@@ -19,13 +19,13 @@ data Operator = OperatorKeep OperatorMod Integer -- high or low, and how many
               | OperatorThreshold Integer -- to threshold values below a certain value
               deriving Show
 
-data Die = Const Integer
-         | CustomDie [(Integer, Integer)] -- value to frequency
-         | BaseDie Integer
-         | MultipleDie Integer Die
-         | OperationDie Die Operator
-         | BinaryOperatorDie BinOp Die Die
-         | RerollDie Die Reroll
+data Die = Const Integer                    -- a constant, example use being adding to a set of dice
+         | CustomDie [(Integer, Integer)]   -- value to frequency - use to make custom dice
+         | BaseDie Integer                  -- the base value of a die
+         | MultipleDie Integer Die          -- roll multiple dice at the same time, combine results
+         | OperationDie Die Operator        -- for things that only operate on a single set of dice (keep, drop, min, max, threshold the die)
+         | BinaryOperatorDie BinOp Die Die  -- for doing operations that combine two die results (condenses both!)
+         | RerollDie Die Reroll             -- reroll a die when the function is true
          | AttackDie Die Integer Integer Die Integer Die -- hitting die, val to equal or exceed, always fail threshold, val of damage, minimum crit value, total val of crit damage
          deriving Show
 -- X | dX | Y[dice] | [dice][op] | binOp [dice] [dice] | [dice][reroll on] | no idea how to write this
@@ -60,15 +60,15 @@ probs die = probs' $! expandDie die
 percentages' :: DiceCollection -> Map Integer Float
 percentages' dieC = Data.Map.map (\x -> ((/total) . fromIntegral) x) probabilities
     where probabilities = probs' dieC
-          total = fromIntegral $ foldr (+) 0 probabilities
+          total = fromIntegral $ totalFreq' dieC
 percentages :: Die -> Map Integer Float
 percentages die = percentages' $! expandDie die
 
 -- what is the expected value of a die
 expected' :: DiceCollection -> Float
-expected' dieC = (fromIntegral (sum $ map (\(x,y) -> x * y) (toAscList probabilities))) / total
+expected' dieC = (/ total) $ fromIntegral $ sum $ map (\(x,y) -> x * y) $ toAscList probabilities
     where probabilities = probs' dieC
-          total = fromIntegral $ foldr (+) 0 probabilities
+          total = fromIntegral $ totalFreq' dieC
 expected :: Die -> Float
 expected die = expected' $! expandDie die
 
@@ -78,10 +78,12 @@ stats' dieC = (expected' dieC, percentages' dieC)
 stats :: Die -> (Float, Map Integer Float)
 stats die = stats' $! expandDie die
 
+-- given a list of items and values, accumulate the values
 accumulate :: Num a => a -> [(b, a)] -> [(b, a)]
 accumulate _ [] = []
 accumulate v ((x, y):xs) = (x, v + y) : accumulate (v + y) xs
 
+-- given a way to convert a map into a list and a dice collection, return a map of values to the probabilities of each value but accumulated with the previous value
 accumulateProbability :: (Map Integer Integer -> [(Integer, Integer)]) -> DiceCollection -> Map Integer Float
 accumulateProbability toXList dieC = fromList $ map (\(x, y) -> (x, fromIntegral y / total)) $ accumulate 0 probabilities
     where probabilities = toXList $ probs' dieC
