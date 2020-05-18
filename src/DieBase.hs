@@ -106,17 +106,17 @@ totalFreq :: Die -> Integer
 totalFreq die = totalFreq' $! expandDie die
 
 -- combine two dice collections by mapping a combination of one over the other
-combineWith :: ([Integer] -> [Integer] -> [Integer]) -> (Integer -> Integer -> Integer) -> DiceCollection -> DiceCollection -> DiceCollection
-combineWith _ _ [] _ = []
-combineWith f f' ((x, y): xs) ys = map g ys ++ (combineWith f f' xs ys)
-    where g (x', y') = (f x x', f' y y')
+combineWith :: ([Integer] -> [Integer] -> [Integer])-> DiceCollection -> DiceCollection -> DiceCollection
+combineWith _ [] _ = []
+combineWith f ((x, y): xs) ys = map g ys ++ (combineWith f xs ys)
+    where g (x', y') = (f x x', y * y')
 
 -- repeat and combine a dicecollection with itself
 expandMult :: Integer -> DiceCollection -> DiceCollection
 expandMult x xs
     | x == 0 = []
     | x == 1 = xs
-    | x > 1 = combineWith (++) (*) xs (expandMult (x-1) xs)
+    | x > 1 = combineWith (++) xs (expandMult (x-1) xs)
     | otherwise = error "negative expansion"
 
 -- given an operator, return a function that takes a list of ints and returns a list of ints
@@ -142,8 +142,8 @@ replaceIf :: (Integer -> Bool) -> DiceCollection -> DiceCollection
 replaceIf f xs = replaceIf' f xs xs
 
 -- condenses two dice, and then combines them according to a binary operator
-expandBinOp :: (Integer -> Integer -> Integer) -> Die -> Die -> (Integer -> Integer -> Integer) -> DiceCollection
-expandBinOp b die1 die2 yFunc = combineWith (\x y -> [b (head x) (head y)]) yFunc die1' die2'
+expandBinOp :: (Integer -> Integer -> Integer) -> Die -> Die -> DiceCollection
+expandBinOp b die1 die2 = combineWith (\x y -> [b (head x) (head y)]) die1' die2'
     where die1' = fullCondenseDice $ expandDie die1
           die2' = fullCondenseDice $ expandDie die2
 
@@ -168,9 +168,8 @@ expandDie (BaseDie i)
 expandDie (MultipleDie i die) = expandMult i $ expandDie die
 expandDie (OperationDie die op) = condenseDice $ map (\(x,y) -> (dieOp x, y)) (expandDie die)
     where dieOp = getOp op
-expandDie (BinaryOperatorDie (BinOp b) die1 die2) = expandBinOp b die1 die2 (*)
-expandDie (RerollDie die (Reroll reroll)) = condenseDice $ replaceIf reroll die'
-    where die' = expandDie die
+expandDie (BinaryOperatorDie (BinOp b) die1 die2) = expandBinOp b die1 die2
+expandDie (RerollDie die (Reroll reroll)) = condenseDice $ replaceIf reroll $ expandDie die
 expandDie (AttackDie toHit threshold miss dmg critThreshold critDmg) = condenseDice $ expandAttack (expandDie toHit) threshold miss dmg critThreshold critDmg
 
 -- easy constructor for an N sided die; d 6 -> a cube die
