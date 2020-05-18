@@ -97,13 +97,13 @@ getOp :: Operator -> ([Integer] -> [Integer])
 getOp (OperatorMax i) xs = map (min i) xs
 getOp (OperatorMin i) xs = map (max i) xs
 getOp (OperatorKeep High i) xs = genericTake i $ sortOn (\x -> -x) xs
-getOp (OperatorKeep Low i) xs = genericTake i $ sort xs
+getOp (OperatorKeep Low i)  xs = genericTake i $ sort xs
 getOp (OperatorDrop High i) xs = genericDrop i $ sortOn (\x -> -x) xs
-getOp (OperatorDrop Low i) xs = genericDrop i $ sort xs
+getOp (OperatorDrop Low i)  xs = genericDrop i $ sort xs
 getOp (OperatorGeneric (GenOp f)) xs = f xs
-getOp (OperatorThreshold i) xs
-    | sum xs < i = []
-    | otherwise = [1]
+getOp (OperatorThreshold i) xs = [fromIntegral $ fromEnum $ not $ sum xs < 1]
+-- | sum xs < i = []
+-- | otherwise = [1]
 
 -- replace a collection of values if their sum meets some criteria with a second list. else, continue
 replaceIf' :: (Integer -> Bool) -> DiceCollection -> DiceCollection -> DiceCollection
@@ -126,9 +126,9 @@ expandBinOp b die1 die2 yFunc = combineWith (\x y -> [b (head x) (head y)]) yFun
 expandAttack :: DiceCollection -> Integer -> Integer -> Die -> Integer -> Die -> DiceCollection
 expandAttack [] _ _ _ _ _ = []
 expandAttack ((x,y):xs) threshold miss dmg critThreshold critDmg
-    | sum x >= critThreshold              = expandDie ((dmg ..+ critDmg) ..* hits)                   ++ nextVal
-    | sum x <  threshold || sum x <= miss = expandDie (damage ..* Const 0) ++ nextVal
-    | otherwise                           = expandDie damage                    ++ nextVal
+    | sum x >= critThreshold              = expandDie ((dmg ..+ critDmg) ..* hits) ++ nextVal
+    | sum x <  threshold || sum x <= miss = expandDie (damage ..* Const 0)         ++ nextVal
+    | otherwise                           = expandDie damage                       ++ nextVal
     where hits = CustomDie [(1,y)]
           damage = dmg ..* hits ..* CustomDie [(1,totalFreq critDmg)]
           nextVal = expandAttack xs threshold miss dmg critThreshold critDmg
