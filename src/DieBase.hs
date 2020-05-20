@@ -11,7 +11,7 @@ import Data.Ratio
 data OperatorMod = Low | High deriving Show
 data Reroll = Reroll (Integer -> Bool)
 data BinOp = BinOp { binOp :: (Integer -> Integer -> Integer) }
-data GenOp = GenOp { genOp :: [Integer] -> [Integer] }
+data GenOp = GenOp { genOp :: DiceSet -> DiceSet }
 data Operator = OperatorKeep OperatorMod Integer -- high or low, and how many
               | OperatorDrop OperatorMod Integer -- high or low, and how many
               | OperatorMin Integer -- minimum value allowed
@@ -21,7 +21,7 @@ data Operator = OperatorKeep OperatorMod Integer -- high or low, and how many
               deriving Show
 
 data Die = Const Integer                    -- a constant, example use being adding to a set of dice
-         | CustomDie [(Integer, DiceProb)]   -- value to frequency - use to make custom dice
+         | CustomDie [(Integer, DiceProb)]  -- value to frequency - use to make custom dice
          | BaseDie Integer                  -- the base value of a die
          | MultipleDie Integer Die          -- roll multiple dice at the same time, combine results
          | OperationDie Die Operator        -- for things that only operate on a single set of dice (keep, drop, min, max, threshold the die)
@@ -63,22 +63,28 @@ probs :: Die -> Map Integer DiceProb
 probs = probs' . expandDie
 
 -- get the percentages of each value from a die
+percentages'' :: Map Integer DiceProb -> Map Integer Float
+percentages'' = Data.Map.map toPercent
 percentages' :: DiceCollection -> Map Integer Float
-percentages' = Data.Map.map toPercent . probs'
+percentages' = percentages'' . probs'
 percentages :: Die -> Map Integer Float
 percentages = percentages' . expandDie
 
 -- what is the expected value of a die
+expected'' :: Map Integer DiceProb -> Float
+expected'' = fromRational . sum . map (\(x,y) -> fromIntegral x * y) . toAscList
 expected' :: DiceCollection -> Float
-expected' = fromRational . sum . map (\(x,y) -> fromIntegral x * y) . toAscList . probs'
+expected' = expected'' . probs'
 expected :: Die -> Float
 expected = expected' . expandDie
 
 -- get the expected value and the percentages for a die
+stats'' :: Map Integer DiceProb -> (Float, Map Integer Float)
+stats'' mp = (expected'' mp, percentages'' mp)
 stats' :: DiceCollection -> (Float, Map Integer Float)
-stats' dieC = (expected' dieC, percentages' dieC)
+stats' = stats'' . probs'
 stats :: Die -> (Float, Map Integer Float)
-stats die = stats' $! expandDie die
+stats = stats' . expandDie
 
 -- given a list of items and values, accumulate the values
 accumulate :: Num a => a -> [(b, a)] -> [(b, a)]
@@ -106,7 +112,7 @@ expandMult :: Integer -> DiceCollection -> DiceCollection
 expandMult x xs
     | x == 0 = []
     | x == 1 = xs
-    | x > 1 = combineWith (++) xs (expandMult (x-1) xs)
+    | x > 1 = combineWith (++) xs $! expandMult (x-1) xs
     | otherwise = error "negative expansion"
 
 -- given an operator, return a function that takes a list of ints and returns a list of ints

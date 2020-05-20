@@ -1,4 +1,4 @@
-stack.exe build --profile && stack.exe exec --profile -- state-machine-sim-exe +RTS -p
+stack.exe build --profile && stack.exe exec --profile -- die-stats-exe +RTS -p
 
 #stack.exe build --ghc-options="-Wall -O3 -fprof-auto -rtsopts" --executable-profiling
 #https://stackoverflow.com/questions/32123475/profiling-builds-with-stack
