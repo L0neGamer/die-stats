@@ -5,8 +5,9 @@ module DieBase
 
 import Data.Map (Map, fromListWith, toAscList, toDescList, fromList)
 import qualified Data.Map
-import Data.List as L (sort, sortOn, genericTake, genericDrop)
 import Data.Ratio
+import Data.SortedList as SL hiding (map)
+import qualified Data.SortedList as SL (map)
 
 data OperatorMod = Low | High deriving Show
 data Reroll = Reroll (Integer -> Bool)
@@ -39,7 +40,7 @@ instance Show Reroll where
     show (Reroll _) = "Reroll"
 
 type DiceProb = Ratio Integer
-type DiceSet = [Integer]
+type DiceSet = SortedList Integer
 type DiceCollection = [(DiceSet, DiceProb)]
 
 -- converts a diceprob to its percentage
@@ -48,7 +49,7 @@ toPercent = (fromRational) . (* 100)
 
 -- condense everything down to values
 fullCondenseDice :: DiceCollection -> DiceCollection
-fullCondenseDice = map (\(x,y) -> ([x],y)) . toAscList . probs'
+fullCondenseDice = fmap (\(x,y) -> (singleton x,y)) . toAscList . probs'
 
 -- condense similar dice sets
 condenseDice :: DiceCollection -> DiceCollection
@@ -104,7 +105,7 @@ atLeast = accumulateProbability toDescList . expandDie
 -- combine two dice collections by mapping a combination of one over the other
 combineWith :: (DiceSet -> DiceSet -> DiceSet)-> DiceCollection -> DiceCollection -> DiceCollection
 combineWith _ [] _ = []
-combineWith f ((x, y): xs) ys = map g ys ++ (combineWith f xs ys)
+combineWith f ((x, y): xs) ys = map g ys <> combineWith f xs ys
     where g (x', y') = (f x x', y * y')
 
 -- repeat and combine a dicecollection with itself
@@ -112,19 +113,19 @@ expandMult :: Integer -> DiceCollection -> DiceCollection
 expandMult x xs
     | x == 0 = []
     | x == 1 = xs
-    | x > 1 = combineWith (++) xs $! expandMult (x-1) xs
+    | x > 1 = combineWith mappend (condenseDice $ expandMult (x-1) xs) xs
     | otherwise = error "negative expansion"
 
 -- given an operator, return a function that takes a list of ints and returns a list of ints
-getOp :: Operator -> ([Integer] -> [Integer])
-getOp (OperatorMax i) = map (min i)
-getOp (OperatorMin i) = map (max i)
-getOp (OperatorKeep High i) = genericTake i . sortOn (\x -> -x) 
-getOp (OperatorKeep Low i)  = genericTake i . sort 
-getOp (OperatorDrop High i) = genericDrop i . sortOn (\x -> -x) 
-getOp (OperatorDrop Low i)  = genericDrop i . sort 
-getOp (OperatorGeneric (GenOp f)) = f 
-getOp (OperatorThreshold i) = \xs -> [fromIntegral $ fromEnum $ sum xs >= i]
+getOp :: Operator -> (DiceSet -> DiceSet)
+getOp (OperatorMax i) xs = SL.map (min i) xs
+getOp (OperatorMin i) xs = SL.map (max i) xs
+getOp (OperatorKeep High i) xs = SL.drop (length xs - fromInteger i) xs
+getOp (OperatorKeep Low i)  xs = SL.take (fromInteger i) xs
+getOp (OperatorDrop High i) xs = SL.take (length xs - fromInteger i) xs
+getOp (OperatorDrop Low i)  xs = SL.drop (fromInteger i) xs
+getOp (OperatorGeneric (GenOp f)) xs = f xs
+getOp (OperatorThreshold i) xs = singleton $ fromIntegral $ fromEnum $ sum xs >= i
 
 -- replace a collection of values if their sum meets some criteria with a second list. else, continue
 replaceIf' :: (Integer -> Bool) -> DiceCollection -> DiceCollection -> DiceCollection
@@ -139,9 +140,10 @@ replaceIf f xs = replaceIf' f xs xs
 
 -- condenses two dice, and then combines them according to a binary operator
 expandBinOp :: (Integer -> Integer -> Integer) -> Die -> Die -> DiceCollection
-expandBinOp b die1 die2 = combineWith (\x y -> [b (head x) (head y)]) die1' die2'
+expandBinOp b die1 die2 = combineWith (\x y -> singleton $ b (head' x) (head' y)) die1' die2'
     where die1' = fullCondenseDice $ expandDie die1
           die2' = fullCondenseDice $ expandDie die2
+          head' xs = head $ fromSortedList xs
 
 -- do some attack calculations
 expandAttack :: DiceCollection -> Integer -> Integer -> Die -> Integer -> Die -> DiceCollection
@@ -156,10 +158,10 @@ expandAttack ((x,y):xs) threshold miss dmg critThreshold critDmg
 
 -- expand a die and give a dice collection from it
 expandDie :: Die -> DiceCollection
-expandDie (Const i) = [([i], 1)]
-expandDie (CustomDie xs) = map (\(x,y) -> ([x], y)) xs
+expandDie (Const i) = [(singleton i, 1)]
+expandDie (CustomDie xs) = map (\(x,y) -> (singleton x, y)) xs
 expandDie (BaseDie i)
-    | i > 0 = map (\x -> ([x], 1 / fromIntegral i)) [1..i]
+    | i > 0 = map (\x -> (singleton x, 1 / fromIntegral i)) [1..i]
     | otherwise = error "die value cannot be less than 1"
 expandDie (MultipleDie i die) = expandMult i $ expandDie die
 expandDie (OperationDie die op) = condenseDice $ map (\(x,y) -> (dieOp x, y)) (expandDie die)
