@@ -43,9 +43,12 @@ type DiceProb = Ratio Integer
 type DiceSet = SortedList Integer
 type DiceCollection = [(DiceSet, DiceProb)]
 
+fromBool :: Num a => Bool -> a
+fromBool = fromIntegral . fromEnum
+
 -- converts a diceprob to its percentage
 toPercent :: DiceProb -> Float
-toPercent = (fromRational) . (* 100)
+toPercent = fromRational . (* 100)
 
 -- condense everything down to values
 fullCondenseDice :: DiceCollection -> DiceCollection
@@ -54,6 +57,10 @@ fullCondenseDice = fmap (\(x,y) -> (singleton x,y)) . toAscList . probs'
 -- condense similar dice sets
 condenseDice :: DiceCollection -> DiceCollection
 condenseDice = toAscList . fromListWith (+)
+
+condenseIf :: Bool -> DiceCollection -> DiceCollection
+condenseIf True = fullCondenseDice
+condenseIf _    = condenseDice
 
 -- from a dicecollection, get a map of values to frequencies
 probs' :: DiceCollection -> Map Integer DiceProb
@@ -109,23 +116,23 @@ combineWith f ((x, y): xs) ys = map g ys <> combineWith f xs ys
     where g (x', y') = (f x x', y * y')
 
 -- repeat and combine a dicecollection with itself
-expandMult :: Integer -> DiceCollection -> DiceCollection
-expandMult x xs
+expandMult :: Bool -> Integer -> DiceCollection -> DiceCollection
+expandMult b x xs
     | x == 0 = []
     | x == 1 = xs
-    | x > 1 = combineWith mappend (condenseDice $ expandMult (x-1) xs) xs
+    | x > 1 = combineWith mappend (condenseIf b $ expandMult b (x-1) xs) xs
     | otherwise = error "negative expansion"
 
 -- given an operator, return a function that takes a list of ints and returns a list of ints
 getOp :: Operator -> (DiceSet -> DiceSet)
-getOp (OperatorMax i) xs = SL.map (min i) xs
-getOp (OperatorMin i) xs = SL.map (max i) xs
-getOp (OperatorKeep High i) xs = SL.drop (length xs - fromInteger i) xs
-getOp (OperatorKeep Low i)  xs = SL.take (fromInteger i) xs
-getOp (OperatorDrop High i) xs = SL.take (length xs - fromInteger i) xs
-getOp (OperatorDrop Low i)  xs = SL.drop (fromInteger i) xs
-getOp (OperatorGeneric (GenOp f)) xs = f xs
-getOp (OperatorThreshold i) xs = singleton $ fromIntegral $ fromEnum $ sum xs >= i
+getOp (OperatorMax i) = SL.map (min i)
+getOp (OperatorMin i) = SL.map (max i)
+getOp (OperatorKeep High i) = SL.reverseDown . SL.take (fromInteger i) . SL.reverse
+getOp (OperatorKeep Low i)  = SL.take (fromInteger i)
+getOp (OperatorDrop High i) = SL.reverseDown . SL.drop (fromInteger i) . SL.reverse
+getOp (OperatorDrop Low i)  = SL.drop (fromInteger i)
+getOp (OperatorGeneric (GenOp f)) = f
+getOp (OperatorThreshold i) = singleton . fromBool . (>= i) . sum
 
 -- replace a collection of values if their sum meets some criteria with a second list. else, continue
 replaceIf' :: (Integer -> Bool) -> DiceCollection -> DiceCollection -> DiceCollection
@@ -141,34 +148,36 @@ replaceIf f xs = replaceIf' f xs xs
 -- condenses two dice, and then combines them according to a binary operator
 expandBinOp :: (Integer -> Integer -> Integer) -> Die -> Die -> DiceCollection
 expandBinOp b die1 die2 = combineWith (\x y -> singleton $ b (head' x) (head' y)) die1' die2'
-    where die1' = fullCondenseDice $ expandDie die1
-          die2' = fullCondenseDice $ expandDie die2
+    where die1' = fullCondenseDice . expandDie $ die1
+          die2' = fullCondenseDice . expandDie $ die2
           head' xs = head $ fromSortedList xs
 
 -- do some attack calculations
 expandAttack :: DiceCollection -> Integer -> Integer -> Die -> Integer -> Die -> DiceCollection
 expandAttack [] _ _ _ _ _ = []
 expandAttack ((x,y):xs) threshold miss dmg critThreshold critDmg
-    | sum x >= critThreshold              = expandDie ((dmg ..+ critDmg) ..* hits) ++ nextVal
-    | sum x <  threshold || sum x <= miss = expandDie (damage ..* Const 0)         ++ nextVal
-    | otherwise                           = expandDie damage                       ++ nextVal
-    where hits = CustomDie [(1,y)]
-          damage = dmg ..* hits
+    | sum x >= critThreshold              = expandDie ((dmg ..+ critDmg) ..* hits True) ++ nextVal
+    | sum x <  threshold || sum x <= miss = expandDie (dmg ..* hits False)              ++ nextVal
+    | otherwise                           = expandDie (dmg ..* hits True)               ++ nextVal
+    where hits b = CustomDie [(fromBool b,y)]
           nextVal = expandAttack xs threshold miss dmg critThreshold critDmg
 
 -- expand a die and give a dice collection from it
-expandDie :: Die -> DiceCollection
-expandDie (Const i) = [(singleton i, 1)]
-expandDie (CustomDie xs) = map (\(x,y) -> (singleton x, y)) xs
-expandDie (BaseDie i)
+expandDie' :: Bool -> Die -> DiceCollection
+expandDie' _ (Const i)      = [(singleton i, 1)]
+expandDie' _ (CustomDie xs) = map (\(x,y) -> (singleton x, y)) xs
+expandDie' _ (BaseDie i)
     | i > 0 = map (\x -> (singleton x, 1 / fromIntegral i)) [1..i]
     | otherwise = error "die value cannot be less than 1"
-expandDie (MultipleDie i die) = expandMult i $ expandDie die
-expandDie (OperationDie die op) = condenseDice $ map (\(x,y) -> (dieOp x, y)) (expandDie die)
+expandDie' b (MultipleDie i die)  = condenseIf b $ expandMult b i $ expandDie' b die
+expandDie' b (OperationDie die op) = condenseIf b $ map (\(x,y) -> (dieOp x, y)) (expandDie' False die)
     where dieOp = getOp op
-expandDie (BinaryOperatorDie (BinOp b) die1 die2) = expandBinOp b die1 die2
-expandDie (RerollDie die (Reroll reroll)) = condenseDice $ replaceIf reroll $ expandDie die
-expandDie (AttackDie toHit threshold miss dmg critThreshold critDmg) = condenseDice $ expandAttack (expandDie toHit) threshold miss dmg critThreshold critDmg
+expandDie' _ (BinaryOperatorDie (BinOp bOp) die1 die2) = expandBinOp bOp die1 die2
+expandDie' _ (RerollDie die (Reroll reroll)) = condenseDice . replaceIf reroll . expandDie' True $ die
+expandDie' _ (AttackDie toHit threshold miss dmg critThreshold critDmg) = fullCondenseDice $ expandAttack (expandDie' True toHit) threshold miss dmg critThreshold critDmg
+
+expandDie :: Die -> DiceCollection
+expandDie = expandDie' True
 
 -- easy constructor for an N sided die; d 6 -> a cube die
 d :: Integer -> Die

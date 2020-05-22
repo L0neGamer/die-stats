@@ -17,5 +17,5 @@ main = do
     putStrLn "\nlevel 9 fighter maul 2 attacks vs ac 15 (+5 mod)"
     print $ stats $ 2 .* consAttack 9 15 (2.* d 6) 5
     putStrLn "\nlevel 9 fighter maul 2 attacks reroll 1s and 2s vs ac 15 (+5 mod)"
-    print $ stats $ 2 .* consAttack 9 15 (2.* d 6 .# (<3)) 5
-    -- print $ stats $ 4 .* d 100
+    print $ stats $ 2 .* consAttack 9 15 (2.* (d 6 .# (<3))) 5
+    -- print $ stats $ 10 .* d 100
