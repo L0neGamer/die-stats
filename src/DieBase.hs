@@ -8,11 +8,12 @@ import qualified Data.Map
 import Data.Ratio
 import Data.SortedList as SL hiding (map)
 import qualified Data.SortedList as SL (map)
+import Data.Bifunctor (first)
 
 data OperatorMod = Low | High deriving Show
-data Reroll = Reroll (Integer -> Bool)
-data BinOp = BinOp { binOp :: (Integer -> Integer -> Integer) }
-data GenOp = GenOp { genOp :: DiceSet -> DiceSet }
+newtype Reroll = Reroll (Integer -> Bool)
+newtype BinOp = BinOp { binOp :: Integer -> Integer -> Integer }
+newtype GenOp = GenOp { genOp :: DiceSet -> DiceSet }
 data Operator = OperatorKeep OperatorMod Integer -- high or low, and how many
               | OperatorDrop OperatorMod Integer -- high or low, and how many
               | OperatorMin Integer -- minimum value allowed
@@ -52,7 +53,7 @@ toPercent = fromRational . (* 100)
 
 -- condense everything down to values
 fullCondenseDice :: DiceCollection -> DiceCollection
-fullCondenseDice = fmap (\(x,y) -> (singleton x,y)) . toAscList . probs'
+fullCondenseDice = fmap (first singleton) . toAscList . probs'
 
 -- condense similar dice sets
 condenseDice :: DiceCollection -> DiceCollection
@@ -64,7 +65,7 @@ condenseIf _    = condenseDice
 
 -- from a dicecollection, get a map of values to frequencies
 probs' :: DiceCollection -> Map Integer DiceProb
-probs' = fromListWith (+) . map (\(vals, count) -> (sum vals, count))
+probs' = fromListWith (+) . map (first sum)
 
 -- expand a die then call probs'
 probs :: Die -> Map Integer DiceProb
@@ -165,12 +166,12 @@ expandAttack ((x,y):xs) threshold miss dmg critThreshold critDmg
 -- expand a die and give a dice collection from it
 expandDie' :: Bool -> Die -> DiceCollection
 expandDie' _ (Const i)      = [(singleton i, 1)]
-expandDie' _ (CustomDie xs) = map (\(x,y) -> (singleton x, y)) xs
+expandDie' _ (CustomDie xs) = map (first singleton) xs
 expandDie' _ (BaseDie i)
     | i > 0 = map (\x -> (singleton x, 1 / fromIntegral i)) [1..i]
     | otherwise = error "die value cannot be less than 1"
 expandDie' b (MultipleDie i die)  = condenseIf b $ expandMult b i $ expandDie' b die
-expandDie' b (OperationDie die op) = condenseIf b $ map (\(x,y) -> (dieOp x, y)) (expandDie' False die)
+expandDie' b (OperationDie die op) = condenseIf b $ map (first dieOp) (expandDie' False die)
     where dieOp = getOp op
 expandDie' _ (BinaryOperatorDie (BinOp bOp) die1 die2) = expandBinOp bOp die1 die2
 expandDie' _ (RerollDie die (Reroll reroll)) = condenseDice . replaceIf reroll . expandDie' True $ die
